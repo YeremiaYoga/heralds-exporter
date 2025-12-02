@@ -1,6 +1,5 @@
-// ===================== GLOBAL STATE =====================
 let heraldExporter_currentDialog = null;
-let heraldExporter_entries = []; 
+let heraldExporter_entries = [];
 
 // ===================== ACCESS BUTTON =====================
 async function heraldExporter_renderAccessButton() {
@@ -26,7 +25,7 @@ async function heraldExporter_renderAccessButton() {
     accessButton.classList.add("heraldExporter-accessButton");
     accessButton.innerHTML =
       '<i class="fa-solid fa-file-import" style="margin-left:2px;"></i>';
-    accessButton.title = "Open Herald Importer";
+    accessButton.title = "Open Herald Importer / Exporter";
 
     accessButton.addEventListener("click", async function () {
       await heraldExporter_showDialog();
@@ -47,7 +46,7 @@ async function heraldExporter_showDialog() {
       <div id="heraldExporter-dialogMiddleContainer" class="heraldExporter-dialogMiddleContainer"></div>
       <div id="heraldExporter-dialogBottomContainer" class="heraldExporter-dialogBottomContainer"></div>
     </div>
-  `;
+`;
 
   const dialog = new Dialog({
     title: "Herald Importer",
@@ -101,7 +100,7 @@ async function heraldExporter_renderDialogCoreMiddle() {
   );
   if (!middle) return;
 
-  heraldExporter_entries = []; 
+  heraldExporter_entries = [];
 
   middle.innerHTML = `
     <div class="heraldExporter-middleRoot">
@@ -158,6 +157,7 @@ async function heraldExporter_renderDialogCoreMiddle() {
   const dropInfo = document.getElementById("heraldExporter-dropInfo");
   const listContainer = document.getElementById("heraldExporter-listContainer");
   const listCount = document.getElementById("heraldExporter-listCount");
+  const listWrapper = middle.querySelector(".heraldExporter-listWrapper");
 
   function renderList() {
     const entries = heraldExporter_entries;
@@ -165,6 +165,7 @@ async function heraldExporter_renderDialogCoreMiddle() {
 
     if (!entries.length) {
       dropInfo.textContent = "Nothing selected yet.";
+      if (listWrapper) listWrapper.style.display = "none";
       listContainer.innerHTML = `
         <div class="heraldExporter-listEmpty">
           No files selected. Drop JSON files above to see them here.
@@ -174,6 +175,7 @@ async function heraldExporter_renderDialogCoreMiddle() {
     }
 
     dropInfo.textContent = `${entries.length} file(s) selected.`;
+    if (listWrapper) listWrapper.style.display = "block";
 
     listContainer.innerHTML = entries
       .map((entry, index) => {
@@ -246,7 +248,7 @@ async function heraldExporter_renderDialogCoreMiddle() {
   });
 }
 
-// ===================== BOTTOM: IMPORT / CANCEL =====================
+// ===================== BOTTOM: IMPORT / EXPORT / CANCEL =====================
 async function heraldExporter_renderDialogCoreBottom() {
   const bottom = document.getElementById(
     "heraldExporter-dialogBottomContainer"
@@ -255,7 +257,31 @@ async function heraldExporter_renderDialogCoreBottom() {
 
   bottom.innerHTML = `
     <div class="heraldExporter-bottomBar">
-      
+      <div class="heraldExporter-exportSection">
+        <div class="heraldExporter-exportTitle">Export from Compendium</div>
+        <div class="heraldExporter-exportRow">
+          <select
+            id="heraldExporter-compendiumSelect"
+            class="heraldExporter-select"
+          >
+            <!-- Filled by JS -->
+          </select>
+          <button
+            id="heraldExporter-exportButton"
+            class="heraldExporter-btn heraldExporter-btn--outline"
+            type="button"
+          >
+            Export
+          </button>
+        </div>
+        <div
+          id="heraldExporter-exportHint"
+          class="heraldExporter-exportHint"
+        >
+          Choose a compendium and export all documents as a JSON file.
+        </div>
+      </div>
+
       <div class="heraldExporter-bottomButtons">
         <button id="heraldExporter-cancelButton" class="heraldExporter-btn heraldExporter-btn--secondary">
           Cancel
@@ -269,7 +295,38 @@ async function heraldExporter_renderDialogCoreBottom() {
 
   const cancelButton = document.getElementById("heraldExporter-cancelButton");
   const importButton = document.getElementById("heraldExporter-importButton");
+  const compendiumSelect = document.getElementById(
+    "heraldExporter-compendiumSelect"
+  );
+  const exportButton = document.getElementById("heraldExporter-exportButton");
+  const exportHint = document.getElementById("heraldExporter-exportHint");
 
+  // Populate compendium select
+  if (compendiumSelect) {
+    const packs = Array.from(game.packs || []).sort((a, b) =>
+      a.metadata.label.localeCompare(b.metadata.label)
+    );
+
+    if (!packs.length) {
+      compendiumSelect.innerHTML = `<option value="">No compendiums available</option>`;
+      compendiumSelect.disabled = true;
+      if (exportButton) exportButton.disabled = true;
+      if (exportHint)
+        exportHint.textContent = "No compendiums found in this world/system.";
+    } else {
+      compendiumSelect.innerHTML = packs
+        .map((p) => {
+          const label = p.metadata.label || p.collection || p.metadata.name;
+          const docName = p.documentName || "";
+          return `<option value="${p.collection}">
+            ${label}${docName ? ` (${docName})` : ""}
+          </option>`;
+        })
+        .join("");
+    }
+  }
+
+  // Cancel
   cancelButton.addEventListener("click", () => {
     if (heraldExporter_currentDialog) {
       heraldExporter_currentDialog.close();
@@ -277,6 +334,7 @@ async function heraldExporter_renderDialogCoreBottom() {
     }
   });
 
+  // Import
   importButton.addEventListener("click", async () => {
     if (!heraldExporter_entries.length) {
       ui.notifications?.warn("No files selected for import.");
@@ -296,8 +354,64 @@ async function heraldExporter_renderDialogCoreBottom() {
       heraldExporter_currentDialog = null;
     }
   });
+
+  // Export compendium
+  exportButton.addEventListener("click", async () => {
+    const collectionId = compendiumSelect?.value;
+    if (!collectionId) {
+      ui.notifications?.warn("Please choose a compendium to export.");
+      return;
+    }
+
+    const pack = game.packs.get(collectionId);
+    if (!pack) {
+      ui.notifications?.error("Could not find the selected compendium.");
+      return;
+    }
+
+    exportButton.disabled = true;
+    exportButton.textContent = "Exporting…";
+
+    try {
+      const docs = await pack.getDocuments();
+      const entries = docs.map((doc) => ({
+        documentType: doc.documentName || doc.constructor.name,
+        raw: doc.toObject(),
+      }));
+
+      const meta = pack.metadata || {};
+      const payload = {
+        packId: meta.id || pack.collection,
+        name: meta.name || pack.collection,
+        label: meta.label || pack.collection,
+        documentType: pack.documentName || null,
+        entries,
+      };
+
+      const json = JSON.stringify(payload, null, 2);
+      const safeLabel = (payload.label || "compendium")
+        .replace(/[\\\/:*?"<>|]+/g, "_")
+        .trim();
+      const docType = payload.documentType || "Documents";
+      const filename = `herald-${safeLabel}-${docType}.json`;
+
+      saveDataToFile(json, "application/json", filename);
+      ui.notifications?.info(
+        `Exported ${entries.length} document(s) from "${payload.label}".`
+      );
+    } catch (err) {
+      console.error("Herald Exporter: failed to export compendium", err);
+      ui.notifications?.error(
+        "Failed to export selected compendium. See console for details."
+      );
+    } finally {
+      exportButton.disabled = false;
+      exportButton.textContent = "Export";
+    }
+  });
 }
 
+// ===================== IMPORT MULTIPLE FILES =====================
 async function heraldExporter_handleImportMultiple() {
   const fileEntries = heraldExporter_entries.filter((e) => e.type === "file");
 
@@ -311,7 +425,7 @@ async function heraldExporter_handleImportMultiple() {
   }
 }
 
-
+// ===================== IMPORT FROM FILE =====================
 async function heraldExporter_importFromFile(file) {
   let text;
   try {
@@ -330,7 +444,6 @@ async function heraldExporter_importFromFile(file) {
     ui.notifications?.error(`Invalid JSON in file: ${file.name}`);
     return;
   }
-
 
   let entries = [];
 
@@ -366,7 +479,6 @@ async function heraldExporter_importSingleEntry(entry) {
 
   let rawData = entry.raw || entry.data || entry;
 
- 
   if (!documentType) {
     if (rawData.type && rawData.name) {
       documentType = "Item";
@@ -379,9 +491,8 @@ async function heraldExporter_importSingleEntry(entry) {
     }
   }
 
-
   documentType = String(documentType).trim();
-  documentType = documentType.replace(/s$/i, ""); 
+  documentType = documentType.replace(/s$/i, "");
   documentType = documentType.charAt(0).toUpperCase() + documentType.slice(1);
 
   const DocumentClass = CONFIG[documentType]?.documentClass;
