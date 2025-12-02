@@ -1,0 +1,253 @@
+/* Floating Access Button Container */
+.heraldExporter-accessButtonContainer {
+    position: fixed;
+    bottom: 2vh;
+    left: 70vw;
+    transform: translateX(-50%);
+    z-index: 5;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}
+
+.heraldExporter-accessButton {
+    background-color: rgba(0, 0, 0, 0.7);
+    width: 30px;
+    height: 30px;
+    color: white;
+    font-size: 16px;
+    border: none;
+    cursor: pointer;
+    border-radius: 5px;
+    margin-bottom: 5px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    transition: background-color 0.3s ease;
+    -webkit-border-radius: 5px;
+    -moz-border-radius: 5px;
+    -ms-border-radius: 5px;
+    -o-border-radius: 5px;
+}
+
+
+
+/* Dialog Layout */
+.heraldExporter-dialogContainer {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    height: 100%;
+}
+
+.heraldExporter-dialogTopContainer {
+    padding: 8px 8px 0 8px;
+}
+
+.heraldExporter-dialogMiddleContainer {
+    flex: 1;
+    padding: 8px;
+}
+
+.heraldExporter-dialogBottomContainer {
+    padding: 8px;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Header inside dialog */
+.heraldExporter-topHeader {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.heraldExporter-topTitle {
+    font-size: 1rem;
+    font-weight: 700;
+}
+
+.heraldExporter-topSubtitle {
+    font-size: 0.8rem;
+    opacity: 0.8;
+}
+
+/* Middle root layout */
+.heraldExporter-middleRoot {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    height: 100%;
+}
+
+/* Drop zone */
+.heraldExporter-dropZone {
+    border: 2px dashed rgba(255, 255, 255, 0.4);
+    border-radius: 8px;
+    padding: 16px;
+    text-align: center;
+    cursor: pointer;
+    background: rgba(0, 0, 0, 0.4);
+    transition: border-color 0.15s ease, background 0.15s ease,
+        box-shadow 0.15s ease;
+}
+
+.heraldExporter-dropZone--active {
+    border-color: #33bbff;
+    background: rgba(0, 0, 0, 0.7);
+    box-shadow: 0 0 0 1px #33bbff;
+}
+
+.heraldExporter-dropIcon {
+    font-size: 32px;
+    margin-bottom: 6px;
+}
+
+.heraldExporter-dropTitle {
+    font-weight: bold;
+    margin-bottom: 4px;
+}
+
+.heraldExporter-dropText {
+    font-size: 0.9rem;
+    opacity: 0.8;
+    margin-bottom: 10px;
+}
+
+.heraldExporter-dropInfo {
+    font-size: 0.85rem;
+    opacity: 0.8;
+    margin-top: 6px;
+}
+
+/* Buttons (generic) */
+.heraldExporter-btn {
+    padding: 6px 14px;
+    border-radius: 4px;
+    border: none;
+    font-size: 0.85rem;
+    cursor: pointer;
+}
+
+.heraldExporter-btn--secondary {
+    background: #555;
+    color: #fff;
+}
+
+.heraldExporter-btn--secondary:hover {
+    background: #666;
+}
+
+.heraldExporter-btn--primary {
+    background: #1e88e5;
+    color: #fff;
+}
+
+.heraldExporter-btn--primary:hover {
+    background: #42a5f5;
+}
+
+/* File list */
+.heraldExporter-listWrapper {
+    margin-top: 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    flex: 1;
+    min-height: 0;
+}
+
+.heraldExporter-listHeader {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.8rem;
+    opacity: 0.85;
+}
+
+.heraldExporter-listTitle {
+    font-weight: 600;
+}
+
+.heraldExporter-listCount {
+    font-style: italic;
+}
+
+.heraldExporter-listContainer {
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.45);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    padding: 6px;
+    max-height: 220px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.heraldExporter-listEmpty {
+    font-size: 0.8rem;
+    opacity: 0.75;
+    text-align: center;
+    padding: 8px 4px;
+}
+
+.heraldExporter-listItem {
+    display: flex;
+    gap: 6px;
+    padding: 4px 6px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.heraldExporter-listItemType {
+    flex-shrink: 0;
+    font-size: 0.65rem;
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: 999px;
+    align-self: center;
+}
+
+.heraldExporter-badgeFile {
+    background: rgba(76, 175, 80, 0.3);
+    color: #c8e6c9;
+}
+
+.heraldExporter-listItemContent {
+    min-width: 0;
+}
+
+.heraldExporter-listItemName {
+    font-size: 0.85rem;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.heraldExporter-listItemMeta {
+    font-size: 0.75rem;
+    opacity: 0.75;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Bottom bar */
+.heraldExporter-bottomBar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+}
+
+.heraldExporter-bottomHint {
+    font-size: 0.75rem;
+    opacity: 0.8;
+}
+
+.heraldExporter-bottomButtons {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
