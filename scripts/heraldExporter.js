@@ -1,6 +1,37 @@
 let heraldExporter_currentDialog = null;
 let heraldExporter_entries = [];
 
+const HERALDS_EXPORTER_MODULE_ID = "heralds-exporter";
+
+async function heraldExporter_ensureJsZip() {
+  if (typeof JSZip !== "undefined") return JSZip;
+
+  const src = `modules/${HERALDS_EXPORTER_MODULE_ID}/lib/jszip.min.js`;
+
+  const existing = document.querySelector('script[data-herald-jszip="1"]');
+  if (existing) {
+    await new Promise((resolve, reject) => {
+      existing.addEventListener("load", resolve, { once: true });
+      existing.addEventListener("error", reject, { once: true });
+    });
+  } else {
+    await new Promise((resolve, reject) => {
+      const s = document.createElement("script");
+      s.src = src;
+      s.dataset.heraldJszip = "1";
+      s.onload = resolve;
+      s.onerror = reject;
+      document.head.appendChild(s);
+    });
+  }
+
+  if (typeof JSZip === "undefined") {
+    throw new Error("JSZip failed to load from " + src);
+  }
+
+  return JSZip;
+}
+
 // ===================== ACCESS BUTTON =====================
 async function heraldExporter_renderAccessButton() {
   const existingButton = document.getElementById(
@@ -19,6 +50,9 @@ async function heraldExporter_renderAccessButton() {
     div.innerHTML = html;
     const exporter = div.firstChild;
     exporter.id = "heraldExporter-accessButtonContainer";
+
+    // 🔹 UPDATED: wrapper class supaya bisa di-fix di pojok kanan atas
+    exporter.classList.add("heraldExporter-accessButtonWrapper");
 
     const accessButton = document.createElement("button");
     accessButton.id = "heraldExporter-accessButton";
@@ -46,10 +80,10 @@ async function heraldExporter_showDialog() {
       <div id="heraldExporter-dialogMiddleContainer" class="heraldExporter-dialogMiddleContainer"></div>
       <div id="heraldExporter-dialogBottomContainer" class="heraldExporter-dialogBottomContainer"></div>
     </div>
-`;
+  `;
 
   const dialog = new Dialog({
-    title: "Herald Importer",
+    title: "Herald Importer / Exporter",
     content: dialogContent,
     buttons: {},
     default: "import",
@@ -59,9 +93,9 @@ async function heraldExporter_showDialog() {
   dialog.render(true);
 
   Hooks.once("renderDialog", async (app) => {
-    if (app instanceof Dialog && app.title === "Herald Importer") {
+    if (app instanceof Dialog && app.title === "Herald Importer / Exporter") {
       const width = 520;
-      const height = 520;
+      const height = 580;
 
       app.setPosition({
         left: (window.innerWidth - width) / 2,
@@ -85,15 +119,15 @@ async function heraldExporter_renderDialogCoreTop() {
 
   top.innerHTML = `
     <div class="heraldExporter-topHeader">
-      <div class="heraldExporter-topTitle">Import from External File</div>
+      <div class="heraldExporter-topTitle">Import JSON & Export Compendiums</div>
       <div class="heraldExporter-topSubtitle">
-        Drop one or more JSON files exported from your PC.
+        Import from external JSON files, or export all entries from a Compendium into JSON.
       </div>
     </div>
   `;
 }
 
-// ===================== MIDDLE: DRAG & DROP + LIST =====================
+// ===================== MIDDLE: IMPORT + COMPENDIUM LIST =====================
 async function heraldExporter_renderDialogCoreMiddle() {
   const middle = document.getElementById(
     "heraldExporter-dialogMiddleContainer"
@@ -104,6 +138,7 @@ async function heraldExporter_renderDialogCoreMiddle() {
 
   middle.innerHTML = `
     <div class="heraldExporter-middleRoot">
+      <!-- IMPORT: DROP ZONE -->
       <div class="heraldExporter-dropZone" id="heraldExporter-dropZone">
         <div class="heraldExporter-dropIcon">
           <i class="fa-solid fa-file-arrow-up"></i>
@@ -135,20 +170,45 @@ async function heraldExporter_renderDialogCoreMiddle() {
         </div>
       </div>
 
-      <div class="heraldExporter-listWrapper" style="display:none">
+      <!-- IMPORT: FILE LIST -->
+      <div class="heraldExporter-listWrapper" id="heraldExporter-fileListWrapper" style="display:none">
         <div class="heraldExporter-listHeader">
           <span class="heraldExporter-listTitle">Files to Import</span>
           <span id="heraldExporter-listCount" class="heraldExporter-listCount">0 file(s)</span>
         </div>
-        <div id="heraldExporter-listContainer" class="heraldExporter-listContainer">
+        <div id="heraldExporter-listContainer" class="heraldExporter-listContainer heraldExporter-listContainer--files">
           <div class="heraldExporter-listEmpty">
             No files selected. Drop JSON files above to see them here.
+          </div>
+        </div>
+
+        <!-- Import button di bawah list -->
+        <div class="heraldExporter-importActionBar">
+          <button
+            id="heraldExporter-importButton"
+            class="heraldExporter-btn heraldExporter-btn--primary"
+          >
+            Import Selected Files
+          </button>
+        </div>
+      </div>
+
+      <!-- EXPORT: COMPENDIUM LIST -->
+      <div class="heraldExporter-compendiumWrapper">
+        <div class="heraldExporter-listHeader">
+          <span class="heraldExporter-listTitle">Compendiums</span>
+          <span id="heraldExporter-compendiumCount" class="heraldExporter-listCount"></span>
+        </div>
+        <div id="heraldExporter-compendiumContainer" class="heraldExporter-listContainer">
+          <div class="heraldExporter-listEmpty">
+            Loading compendiums…
           </div>
         </div>
       </div>
     </div>
   `;
 
+  // ---------- IMPORT: FILE HANDLING ----------
   const dropZone = document.getElementById("heraldExporter-dropZone");
   const fileInput = document.getElementById("heraldExporter-fileInput");
   const chooseFilesBtn = document.getElementById(
@@ -157,15 +217,18 @@ async function heraldExporter_renderDialogCoreMiddle() {
   const dropInfo = document.getElementById("heraldExporter-dropInfo");
   const listContainer = document.getElementById("heraldExporter-listContainer");
   const listCount = document.getElementById("heraldExporter-listCount");
-  const listWrapper = middle.querySelector(".heraldExporter-listWrapper");
+  const fileListWrapper = document.getElementById(
+    "heraldExporter-fileListWrapper"
+  );
+  const importButton = document.getElementById("heraldExporter-importButton");
 
-  function renderList() {
+  function renderFileList() {
     const entries = heraldExporter_entries;
     listCount.textContent = `${entries.length} file(s)`;
 
     if (!entries.length) {
       dropInfo.textContent = "Nothing selected yet.";
-      if (listWrapper) listWrapper.style.display = "none";
+      if (fileListWrapper) fileListWrapper.style.display = "none";
       listContainer.innerHTML = `
         <div class="heraldExporter-listEmpty">
           No files selected. Drop JSON files above to see them here.
@@ -175,10 +238,10 @@ async function heraldExporter_renderDialogCoreMiddle() {
     }
 
     dropInfo.textContent = `${entries.length} file(s) selected.`;
-    if (listWrapper) listWrapper.style.display = "block";
+    if (fileListWrapper) fileListWrapper.style.display = "block";
 
     listContainer.innerHTML = entries
-      .map((entry, index) => {
+      .map((entry) => {
         const file = entry.file;
         const sizeKB = Math.max(1, Math.round(file.size / 1024));
         return `
@@ -212,7 +275,7 @@ async function heraldExporter_renderDialogCoreMiddle() {
       heraldExporter_entries.push({ type: "file", file });
     }
 
-    renderList();
+    renderFileList();
   }
 
   // Click → open file picker
@@ -246,169 +309,281 @@ async function heraldExporter_renderDialogCoreMiddle() {
       ui.notifications?.warn("Please drop JSON files from your computer.");
     }
   });
+
+  // 🔹 UPDATED: IMPORT BUTTON HANDLER DI SINI (DEKAT AREA IMPORT)
+  if (importButton) {
+    importButton.addEventListener("click", async () => {
+      if (!heraldExporter_entries.length) {
+        ui.notifications?.warn("No files selected for import.");
+        return;
+      }
+
+      try {
+        await heraldExporter_handleImportMultiple();
+        ui.notifications?.info("Import finished.");
+      } catch (err) {
+        console.error("Herald Importer: import failed", err);
+        ui.notifications?.error("Import failed. Check console for details.");
+      }
+
+      if (heraldExporter_currentDialog) {
+        heraldExporter_currentDialog.close();
+        heraldExporter_currentDialog = null;
+      }
+    });
+  }
+
+  // ---------- EXPORT: COMPENDIUM LIST ----------
+  const compendiumContainer = document.getElementById(
+    "heraldExporter-compendiumContainer"
+  );
+  const compendiumCount = document.getElementById(
+    "heraldExporter-compendiumCount"
+  );
+
+  async function renderCompendiumList() {
+    if (!game.packs) {
+      compendiumContainer.innerHTML = `
+        <div class="heraldExporter-listEmpty">
+          No compendiums available in this world/system.
+        </div>
+      `;
+      compendiumCount.textContent = "0 compendium(s)";
+      return;
+    }
+
+    const packs = Array.from(game.packs);
+    if (!packs.length) {
+      compendiumContainer.innerHTML = `
+        <div class="heraldExporter-listEmpty">
+          No compendiums available in this world/system.
+        </div>
+      `;
+      compendiumCount.textContent = "0 compendium(s)";
+      return;
+    }
+
+    const sorted = packs.sort((a, b) =>
+      a.metadata.label.localeCompare(b.metadata.label)
+    );
+
+    // Preload index to get approximate counts
+    const indexes = await Promise.all(
+      sorted.map((p) =>
+        typeof p.getIndex === "function" ? p.getIndex() : p.index || []
+      )
+    );
+
+    compendiumCount.textContent = `${sorted.length} compendium(s)`;
+
+    compendiumContainer.innerHTML = sorted
+      .map((pack, idx) => {
+        const meta = pack.metadata || {};
+        const label = meta.label || pack.collection || meta.name || "Unnamed";
+        const docType = pack.documentName || meta.type || "Document";
+        const index = indexes[idx] || [];
+        const count =
+          typeof index.size === "number"
+            ? index.size
+            : Array.isArray(index)
+            ? index.length
+            : 0;
+
+        return `
+          <div class="heraldExporter-listItem">
+            <div class="heraldExporter-listItemType heraldExporter-badgeCompendium">PACK</div>
+            <div class="heraldExporter-listItemContent">
+              <div class="heraldExporter-listItemName" title="${label}">
+                ${label}
+              </div>
+              <div class="heraldExporter-listItemMeta">
+                ${docType} · ${count} entr${count === 1 ? "y" : "ies"}
+              </div>
+            </div>
+            <div class="heraldExporter-listItemActions">
+              <button
+                type="button"
+                class="heraldExporter-btn heraldExporter-btn--tiny heraldExporter-exportBtn"
+                data-pack="${pack.collection}"
+              >
+                Export
+              </button>
+            </div>
+          </div>
+        `;
+      })
+      .join("");
+
+    // Attach click handlers for each Export button
+    compendiumContainer.querySelectorAll("button[data-pack]").forEach((btn) => {
+      btn.addEventListener("click", async (event) => {
+        const collectionId = event.currentTarget.dataset.pack;
+        await heraldExporter_exportCompendiumById(
+          collectionId,
+          event.currentTarget
+        );
+      });
+    });
+  }
+
+  await renderCompendiumList();
 }
 
-// ===================== BOTTOM: IMPORT / EXPORT / CANCEL =====================
+// ===================== BOTTOM: HANYA CANCEL =====================
 async function heraldExporter_renderDialogCoreBottom() {
   const bottom = document.getElementById(
     "heraldExporter-dialogBottomContainer"
   );
   if (!bottom) return;
 
+  // 🔹 UPDATED: Import button dihapus dari bawah, tinggal Cancel
   bottom.innerHTML = `
     <div class="heraldExporter-bottomBar">
-      <div class="heraldExporter-exportSection">
-        <div class="heraldExporter-exportTitle">Export from Compendium</div>
-        <div class="heraldExporter-exportRow">
-          <select
-            id="heraldExporter-compendiumSelect"
-            class="heraldExporter-select"
-          >
-            <!-- Filled by JS -->
-          </select>
-          <button
-            id="heraldExporter-exportButton"
-            class="heraldExporter-btn heraldExporter-btn--outline"
-            type="button"
-          >
-            Export
-          </button>
-        </div>
-        <div
-          id="heraldExporter-exportHint"
-          class="heraldExporter-exportHint"
-        >
-          Choose a compendium and export all documents as a JSON file.
-        </div>
-      </div>
-
       <div class="heraldExporter-bottomButtons">
         <button id="heraldExporter-cancelButton" class="heraldExporter-btn heraldExporter-btn--secondary">
           Cancel
-        </button>
-        <button id="heraldExporter-importButton" class="heraldExporter-btn heraldExporter-btn--primary">
-          Import
         </button>
       </div>
     </div>
   `;
 
   const cancelButton = document.getElementById("heraldExporter-cancelButton");
-  const importButton = document.getElementById("heraldExporter-importButton");
-  const compendiumSelect = document.getElementById(
-    "heraldExporter-compendiumSelect"
-  );
-  const exportButton = document.getElementById("heraldExporter-exportButton");
-  const exportHint = document.getElementById("heraldExporter-exportHint");
 
-  // Populate compendium select
-  if (compendiumSelect) {
-    const packs = Array.from(game.packs || []).sort((a, b) =>
-      a.metadata.label.localeCompare(b.metadata.label)
-    );
-
-    if (!packs.length) {
-      compendiumSelect.innerHTML = `<option value="">No compendiums available</option>`;
-      compendiumSelect.disabled = true;
-      if (exportButton) exportButton.disabled = true;
-      if (exportHint)
-        exportHint.textContent = "No compendiums found in this world/system.";
-    } else {
-      compendiumSelect.innerHTML = packs
-        .map((p) => {
-          const label = p.metadata.label || p.collection || p.metadata.name;
-          const docName = p.documentName || "";
-          return `<option value="${p.collection}">
-            ${label}${docName ? ` (${docName})` : ""}
-          </option>`;
-        })
-        .join("");
-    }
-  }
-
-  // Cancel
   cancelButton.addEventListener("click", () => {
     if (heraldExporter_currentDialog) {
       heraldExporter_currentDialog.close();
       heraldExporter_currentDialog = null;
     }
   });
+}
 
-  // Import
-  importButton.addEventListener("click", async () => {
-    if (!heraldExporter_entries.length) {
-      ui.notifications?.warn("No files selected for import.");
-      return;
+// ===================== EXPORT: COMPENDIUM → ZIP (MIRROR FOLDER, 1 ITEM = 1 JSON) =====================
+async function heraldExporter_exportCompendiumById(collectionId, buttonEl) {
+  const pack = game.packs.get(collectionId);
+  console.log(pack);
+  if (!pack) {
+    ui.notifications?.error("Could not find the selected compendium.");
+    return;
+  }
+
+  // Pastikan JSZip sudah ke-load
+  let JSZipLib;
+  try {
+    JSZipLib = await heraldExporter_ensureJsZip();
+  } catch (e) {
+    console.error("Herald Exporter: JSZip failed to load", e);
+    ui.notifications?.error("JSZip failed to load. Check console for details.");
+    return;
+  }
+
+  let restoreLabel;
+  if (buttonEl) {
+    buttonEl.disabled = true;
+    restoreLabel = buttonEl.textContent;
+    buttonEl.textContent = "Exporting…";
+  }
+
+  try {
+    const docs = await pack.getDocuments();
+    const sourcesSet = new Set();
+    console.log(docs);
+    const meta = pack.metadata || {};
+    const baseLabel =
+      meta.label || pack.collection || meta.name || "compendium";
+
+    const entries = docs.map((doc) => {
+      const raw = doc.toObject();
+
+      let src =
+        raw.system?.source ||
+        raw.data?.source ||
+        raw.flags?.ddbimporter?.source ||
+        raw.source ||
+        null;
+
+      if (Array.isArray(src)) src = src.join(" + ");
+      if (typeof src === "string") {
+        src = src.trim();
+        if (src) sourcesSet.add(src);
+      }
+
+      const folderChain = [];
+      let f = doc.folder;
+      while (f) {
+        folderChain.unshift(f.name);
+        f = f.parent;
+      }
+
+      return { raw, folderChain };
+    });
+
+    let sourceLabel = "";
+    if (sourcesSet.size === 1) sourceLabel = [...sourcesSet][0];
+    else if (sourcesSet.size > 1) sourceLabel = "multi-source";
+
+    const safeCompendiumLabel = String(baseLabel || "compendium")
+      .replace(/[\\\/:*?"<>|]+/g, "_")
+      .trim();
+
+    let safeSourcePart = "";
+    if (sourceLabel) {
+      safeSourcePart =
+        "-" +
+        String(sourceLabel)
+          .replace(/[\\\/:*?"<>|]+/g, "_")
+          .replace(/\s+/g, "_")
+          .trim();
     }
 
-    try {
-      await heraldExporter_handleImportMultiple();
-      ui.notifications?.info("Import finished.");
-    } catch (err) {
-      console.error("Herald Importer: import failed", err);
-      ui.notifications?.error("Import failed. Check console for details.");
-    }
+    const zip = new JSZipLib();
+    const rootFolder = zip.folder(safeCompendiumLabel) || zip;
 
-    if (heraldExporter_currentDialog) {
-      heraldExporter_currentDialog.close();
-      heraldExporter_currentDialog = null;
-    }
-  });
+    entries.forEach((entry, index) => {
+      const raw = entry.raw || {};
+      const name =
+        raw.name || raw.system?.name || raw.data?.name || `entry-${index + 1}`;
 
-  // Export compendium
-  exportButton.addEventListener("click", async () => {
-    const collectionId = compendiumSelect?.value;
-    if (!collectionId) {
-      ui.notifications?.warn("Please choose a compendium to export.");
-      return;
-    }
-
-    const pack = game.packs.get(collectionId);
-    if (!pack) {
-      ui.notifications?.error("Could not find the selected compendium.");
-      return;
-    }
-
-    exportButton.disabled = true;
-    exportButton.textContent = "Exporting…";
-
-    try {
-      const docs = await pack.getDocuments();
-      const entries = docs.map((doc) => ({
-        documentType: doc.documentName || doc.constructor.name,
-        raw: doc.toObject(),
-      }));
-
-      const meta = pack.metadata || {};
-      const payload = {
-        packId: meta.id || pack.collection,
-        name: meta.name || pack.collection,
-        label: meta.label || pack.collection,
-        documentType: pack.documentName || null,
-        entries,
-      };
-
-      const json = JSON.stringify(payload, null, 2);
-      const safeLabel = (payload.label || "compendium")
+      const safeName = String(name)
         .replace(/[\\\/:*?"<>|]+/g, "_")
+        .replace(/\s+/g, "_")
         .trim();
-      const docType = payload.documentType || "Documents";
-      const filename = `herald-${safeLabel}-${docType}.json`;
 
-      saveDataToFile(json, "application/json", filename);
-      ui.notifications?.info(
-        `Exported ${entries.length} document(s) from "${payload.label}".`
-      );
-    } catch (err) {
-      console.error("Herald Exporter: failed to export compendium", err);
-      ui.notifications?.error(
-        "Failed to export selected compendium. See console for details."
-      );
-    } finally {
-      exportButton.disabled = false;
-      exportButton.textContent = "Export";
+      let currentFolder = rootFolder;
+
+      if (entry.folderChain && entry.folderChain.length) {
+        for (const part of entry.folderChain) {
+          const safePart = String(part)
+            .replace(/[\\\/:*?"<>|]+/g, "_")
+            .trim();
+          if (!safePart) continue;
+          currentFolder =
+            currentFolder.folder(safePart) || currentFolder.folder(safePart);
+        }
+      }
+
+      const filename = `${safeName}.json`;
+
+      currentFolder.file(filename, JSON.stringify(raw, null, 2));
+    });
+
+    const zipFilename = `herald-${safeCompendiumLabel}${safeSourcePart}.zip`;
+    const zipBlob = await zip.generateAsync({ type: "blob" });
+    saveDataToFile(zipBlob, "application/zip", zipFilename);
+
+    ui.notifications?.info(
+      `Exported ${entries.length} document(s) from "${baseLabel}" as ZIP (folder tree mirrors compendium).`
+    );
+  } catch (err) {
+    console.error("Herald Exporter: failed to export compendium", err);
+    ui.notifications?.error(
+      "Failed to export selected compendium. See console for details."
+    );
+  } finally {
+    if (buttonEl) {
+      buttonEl.disabled = false;
+      buttonEl.textContent = restoreLabel || "Export";
     }
-  });
+  }
 }
 
 // ===================== IMPORT MULTIPLE FILES =====================
@@ -466,7 +641,6 @@ async function heraldExporter_importFromFile(file) {
   );
 }
 
-// ===================== IMPORT SINGLE ENTRY → CREATE DOCUMENT =====================
 async function heraldExporter_importSingleEntry(entry) {
   let documentType =
     entry.documentType ||
